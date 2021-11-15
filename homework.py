@@ -111,13 +111,13 @@ def main() -> None:
     env = check_tokens()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
-    last_approve_time = current_timestamp - 3600 * 24 * 120
     hw_statuses = {}
     sent_msg = ''
     if env:
         while True:
             try:
-                response = get_api_answer(last_approve_time)
+                current_timestamp = int(time.time())
+                response = get_api_answer(current_timestamp - 3600 * 24 * 14)
                 homeworks = check_response(response)
             except Exception as error:
                 message = f'Сбой в работе программы:\n {error}'
@@ -132,14 +132,10 @@ def main() -> None:
                     status = hw['status']
                     if hw_name not in hw_statuses.keys():
                         hw_statuses[hw_name] = status
-                        if status == 'approved':
-                            last_approve_time = int(time.time())
                         message = parse_status(hw)
                         send_message(bot, message)
                     elif status != hw_statuses[hw_name]:
                         hw_statuses[hw_name] = status
-                        if status == 'approved':
-                            last_approve_time = int(time.time())
                         message = parse_status(hw)
                         send_message(bot, message)
                 time.sleep(RETRY_TIME)
