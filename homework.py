@@ -8,6 +8,8 @@ import requests
 import telegram
 from dotenv import load_dotenv
 
+import exceptions
+
 load_dotenv()
 
 
@@ -36,36 +38,22 @@ logging.basicConfig(
 def send_message(bot: telegram.Bot, message: str) -> None:
     """Отправка сообщения в телеграм."""
     if message:
-        try:
-            bot.send_message(
-                chat_id=TELEGRAM_CHAT_ID,
-                text=message,
-            )
-        except Exception as error:
-            logging.error(
-                f'Ошибка при отправке сообщения:\n {error}',
-                exc_info=True
-            )
-        else:
-            logging.info('Удачная отправка сообщения.')
+        bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=message,
+        )
+        logging.info('Удачная отправка сообщения.')
 
 
 def get_api_answer(current_timestamp: int) -> dict:
     """Запрос и получение данных с сервера."""
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
-    try:
-        response = requests.get(ENDPOINT, headers=HEADERS, params=params)
-    except Exception as error:
-        logging.error(
-            f'При запросе к ENDPOINT возникла ошибка:\n {error}',
-            exc_info=True
-        )
+    response = requests.get(ENDPOINT, headers=HEADERS, params=params)
     if response.status_code != HTTPStatus.OK.value:
-        logging.error(
+        raise exceptions.ResponseError(
             f'ENDPOINT вернул ошибку. Код ответа: {response.status_code}'
         )
-        raise
     return response.json()
 
 
@@ -76,11 +64,9 @@ def check_response(response: dict) -> list:
             if not response['homeworks']:
                 logging.debug('В ответе нет новых статусов.')
             return response['homeworks']
-    logging.error(
-        'Отсутствуют ожидаемые ключи в ответе API.',
-        exc_info=True
+    raise exceptions.ResponseDataError(
+        'Отсутствуют ожидаемые ключи в ответе API.'
     )
-    raise
 
 
 def parse_status(homework) -> str:
@@ -90,8 +76,7 @@ def parse_status(homework) -> str:
     if homework_status in HOMEWORK_STATUSES.keys():
         verdict = HOMEWORK_STATUSES[homework_status]
         return f'Изменился статус проверки работы "{homework_name}". {verdict}'
-    logging.error('Недокументированный статус работы.')
-    raise
+    raise exceptions.StatusKeyError('Недокументированный статус работы.')
 
 
 def check_tokens() -> bool:
@@ -108,37 +93,43 @@ def check_tokens() -> bool:
 
 def main() -> None:
     """Основная логика работы бота."""
-    env = check_tokens()
+    tokens = check_tokens()
+    if not tokens:
+        return
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
     hw_statuses = {}
     sent_msg = ''
-    if env:
-        while True:
-            try:
-                current_timestamp = int(time.time())
-                response = get_api_answer(current_timestamp - 3600 * 24 * 14)
-                homeworks = check_response(response)
-            except Exception as error:
-                message = f'Сбой в работе программы:\n {error}'
-                logging.error(message, exc_info=True)
-                if message != sent_msg:
+    while True:
+        try:
+            current_timestamp = int(time.time()) - 3600 * 24 * 30
+            response = get_api_answer(current_timestamp)
+            homeworks = check_response(response)
+            print(homeworks)
+            for hw in homeworks:
+                hw_name = hw['homework_name']
+                status = hw['status']
+                if hw_name not in hw_statuses.keys():
+                    hw_statuses[hw_name] = status
+                    message = parse_status(hw)
                     send_message(bot, message)
-                    sent_msg = message
-                time.sleep(RETRY_TIME)
-            else:
-                for hw in homeworks:
-                    hw_name = hw['homework_name']
-                    status = hw['status']
-                    if hw_name not in hw_statuses.keys():
-                        hw_statuses[hw_name] = status
-                        message = parse_status(hw)
-                        send_message(bot, message)
-                    elif status != hw_statuses[hw_name]:
-                        hw_statuses[hw_name] = status
-                        message = parse_status(hw)
-                        send_message(bot, message)
-                time.sleep(RETRY_TIME)
+                elif status != hw_statuses[hw_name]:
+                    hw_statuses[hw_name] = status
+                    message = parse_status(hw)
+                    send_message(bot, message)
+                else:
+                    logging.debug('Нет обновлений статусов работ.')
+            time.sleep(RETRY_TIME)
+        except telegram.error.TelegramError as error:
+            message = f'Сбой в работе программы:\n {error}'
+            logging.error(message, exc_info=True)
+        except Exception as error:
+            message = f'Сбой в работе программы:\n {error}'
+            logging.error(message, exc_info=True)
+            if message != sent_msg:
+                send_message(bot, message)
+                sent_msg = message
+            time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':
