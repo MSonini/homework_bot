@@ -59,11 +59,24 @@ def get_api_answer(current_timestamp: int) -> dict:
 
 def check_response(response: dict) -> list:
     """Проверка корректности полученных данных."""
-    if response:
-        if type(response['homeworks']) == list:
+    if response and 'homeworks' in response:
+        if isinstance(response['homeworks'], list):
             if not response['homeworks']:
-                logging.debug('В ответе нет новых статусов.')
-            return response['homeworks']
+                logging.debug('Нет обновлений статусов работ.')
+            else:
+                for hw in response['homeworks']:
+                    if ('homework_name' in hw
+                            and 'status' in hw):
+                        homework_status = hw['status']
+                        if homework_status not in HOMEWORK_STATUSES:
+                            raise exceptions.StatusKeyError(
+                                'Недокументированный статус работы.'
+                            )
+                    else:
+                        raise exceptions.ResponseDataError(
+                            'Отсутствуют ожидаемые ключи в ответе API.'
+                        )
+                return response['homeworks']
     raise exceptions.ResponseDataError(
         'Отсутствуют ожидаемые ключи в ответе API.'
     )
@@ -73,10 +86,8 @@ def parse_status(homework) -> str:
     """Определение статуса домашней работы."""
     homework_name = homework['homework_name']
     homework_status = homework['status']
-    if homework_status in HOMEWORK_STATUSES.keys():
-        verdict = HOMEWORK_STATUSES[homework_status]
-        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
-    raise exceptions.StatusKeyError('Недокументированный статус работы.')
+    verdict = HOMEWORK_STATUSES[homework_status]
+    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def check_tokens() -> bool:
@@ -98,28 +109,15 @@ def main() -> None:
         return
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
-    hw_statuses = {}
     sent_msg = ''
     while True:
         try:
-            current_timestamp = int(time.time()) - 3600 * 24 * 30
-            response = get_api_answer(current_timestamp)
+            response = get_api_answer(current_timestamp - 3600 * 24 * 30)
+            current_timestamp = response['current_date'] or int(time.time())
             homeworks = check_response(response)
-            print(homeworks)
             for hw in homeworks:
-                hw_name = hw['homework_name']
-                status = hw['status']
-                if hw_name not in hw_statuses.keys():
-                    hw_statuses[hw_name] = status
-                    message = parse_status(hw)
-                    send_message(bot, message)
-                elif status != hw_statuses[hw_name]:
-                    hw_statuses[hw_name] = status
-                    message = parse_status(hw)
-                    send_message(bot, message)
-                else:
-                    logging.debug('Нет обновлений статусов работ.')
-            time.sleep(RETRY_TIME)
+                message = parse_status(hw)
+                send_message(bot, message)
         except telegram.error.TelegramError as error:
             message = f'Сбой в работе программы:\n {error}'
             logging.error(message, exc_info=True)
@@ -129,7 +127,9 @@ def main() -> None:
             if message != sent_msg:
                 send_message(bot, message)
                 sent_msg = message
-            time.sleep(RETRY_TIME)
+        else:
+            sent_msg = ''
+        time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':
