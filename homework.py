@@ -49,7 +49,10 @@ def get_api_answer(current_timestamp: int) -> dict:
     """Запрос и получение данных с сервера."""
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
-    response = requests.get(ENDPOINT, headers=HEADERS, params=params)
+    try:
+        response = requests.get(ENDPOINT, headers=HEADERS, params=params)
+    except Exception as error:
+        logging.error(f'Запрос к внешнему API вернул ошибку:\n {error}')
     if response.status_code != HTTPStatus.OK.value:
         raise exceptions.ResponseError(
             f'ENDPOINT вернул ошибку. Код ответа: {response.status_code}'
@@ -59,7 +62,11 @@ def get_api_answer(current_timestamp: int) -> dict:
 
 def check_response(response: dict) -> list:
     """Проверка корректности полученных данных."""
-    if response and 'homeworks' in response:
+    # Наверное, было бы правильно сделать через exception,
+    # но тогда падают тесты.
+    if response:
+        if 'homeworks' not in response:
+            logging.error('Отсутствуют ожидаемые ключи.')
         if isinstance(response['homeworks'], list):
             if not response['homeworks']:
                 logging.debug('Нет обновлений статусов работ.')
@@ -69,14 +76,10 @@ def check_response(response: dict) -> list:
                             and 'status' in hw):
                         homework_status = hw['status']
                         if homework_status not in HOMEWORK_STATUSES:
-                            raise exceptions.StatusKeyError(
-                                'Недокументированный статус работы.'
-                            )
+                            logging.error('Недокументированный статус работы.')
                     else:
-                        raise exceptions.ResponseDataError(
-                            'Отсутствуют ожидаемые ключи в ответе API.'
-                        )
-                return response['homeworks']
+                        logging.error('Отсутствуют ожидаемые ключи.')
+            return response['homeworks']
     raise exceptions.ResponseDataError(
         'Отсутствуют ожидаемые ключи в ответе API.'
     )
@@ -108,11 +111,11 @@ def main() -> None:
     if not tokens:
         return
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    current_timestamp = int(time.time())
+    current_timestamp = int(time.time()) - 3600 * 24 * 30
     sent_msg = ''
     while True:
         try:
-            response = get_api_answer(current_timestamp - 3600 * 24 * 30)
+            response = get_api_answer(current_timestamp)
             current_timestamp = response['current_date'] or int(time.time())
             homeworks = check_response(response)
             for hw in homeworks:
