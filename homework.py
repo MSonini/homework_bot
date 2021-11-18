@@ -37,12 +37,15 @@ logging.basicConfig(
 
 def send_message(bot: telegram.Bot, message: str) -> None:
     """Отправка сообщения в телеграм."""
-    if message:
+    try:
         bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
             text=message,
         )
         logging.info('Удачная отправка сообщения.')
+    except Exception as error:
+        message = f'Ошибка при отправке сообщения:\n {error}'
+        logging.error(message, exc_info=True)
 
 
 def get_api_answer(current_timestamp: int) -> dict:
@@ -51,8 +54,10 @@ def get_api_answer(current_timestamp: int) -> dict:
     params = {'from_date': timestamp}
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
-    except Exception as error:
-        logging.error(f'Запрос к внешнему API вернул ошибку:\n {error}')
+    except requests.RequestException as error:
+        raise exceptions.ResponseError(
+            f'Ошибка при запросе внешнему API:\n {error}'
+        )
     if response.status_code != HTTPStatus.OK.value:
         raise exceptions.ResponseError(
             f'ENDPOINT вернул ошибку. Код ответа: {response.status_code}'
@@ -62,24 +67,10 @@ def get_api_answer(current_timestamp: int) -> dict:
 
 def check_response(response: dict) -> list:
     """Проверка корректности полученных данных."""
-    # Наверное, было бы правильно сделать через exception,
-    # но тогда падают тесты.
-    if response:
-        if 'homeworks' not in response:
-            logging.error('Отсутствуют ожидаемые ключи.')
-        if isinstance(response['homeworks'], list):
-            if not response['homeworks']:
-                logging.debug('Нет обновлений статусов работ.')
-            else:
-                for hw in response['homeworks']:
-                    if ('homework_name' in hw
-                            and 'status' in hw):
-                        homework_status = hw['status']
-                        if homework_status not in HOMEWORK_STATUSES:
-                            logging.error('Недокументированный статус работы.')
-                    else:
-                        logging.error('Отсутствуют ожидаемые ключи.')
-            return response['homeworks']
+    if isinstance(response['homeworks'], list):
+        if not response['homeworks']:
+            logging.debug('В ответе нет новых статусов.')
+        return response['homeworks']
     raise exceptions.ResponseDataError(
         'Отсутствуют ожидаемые ключи в ответе API.'
     )
@@ -87,10 +78,15 @@ def check_response(response: dict) -> list:
 
 def parse_status(homework) -> str:
     """Определение статуса домашней работы."""
+    if ('homework_name' not in homework
+            and 'status' not in homework):
+        raise exceptions.ResponseDataError('Отсутствуют ожидаемые ключи.')
     homework_name = homework['homework_name']
     homework_status = homework['status']
-    verdict = HOMEWORK_STATUSES[homework_status]
-    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    if homework_status in HOMEWORK_STATUSES:
+        verdict = HOMEWORK_STATUSES[homework_status]
+        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    raise exceptions.StatusKeyError('Недокументированный статус работы.')
 
 
 def check_tokens() -> bool:
@@ -121,9 +117,6 @@ def main() -> None:
             for hw in homeworks:
                 message = parse_status(hw)
                 send_message(bot, message)
-        except telegram.error.TelegramError as error:
-            message = f'Сбой в работе программы:\n {error}'
-            logging.error(message, exc_info=True)
         except Exception as error:
             message = f'Сбой в работе программы:\n {error}'
             logging.error(message, exc_info=True)
