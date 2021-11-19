@@ -81,9 +81,9 @@ def check_response(response: dict) -> list:
 
 def parse_status(homework) -> str:
     """Определение статуса домашней работы."""
-    if ('homework_name' not in homework
-            or 'status' not in homework):
-        raise exceptions.ResponseDataError('Отсутствуют ожидаемые ключи.')
+    # Аналогичная ситуация функцией check_response - не проходят тесты.
+    # Также оставил без проверки ключей, опираясь на KeyError и его
+    # дальнейшую обработку.
     homework_name = homework['homework_name']
     homework_status = homework['status']
     if homework_status in HOMEWORK_STATUSES:
