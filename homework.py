@@ -43,7 +43,7 @@ def send_message(bot: telegram.Bot, message: str) -> None:
             text=message,
         )
         logging.info('Удачная отправка сообщения.')
-    except Exception as error:
+    except telegram.error.TelegramError as error:
         message = f'Ошибка при отправке сообщения:\n {error}'
         logging.error(message, exc_info=True)
 
@@ -67,6 +67,9 @@ def get_api_answer(current_timestamp: int) -> dict:
 
 def check_response(response: dict) -> list:
     """Проверка корректности полученных данных."""
+    # Если поставить условие на наличие ключа homeworks, то снова падают тесты.
+    # Разве нельзя оставить без явной проверки, ведь отсутсвие ключа вызовет
+    # стандартный KeyError, который мы обрабоатем в функции main?
     if isinstance(response['homeworks'], list):
         if not response['homeworks']:
             logging.debug('В ответе нет новых статусов.')
@@ -79,7 +82,7 @@ def check_response(response: dict) -> list:
 def parse_status(homework) -> str:
     """Определение статуса домашней работы."""
     if ('homework_name' not in homework
-            and 'status' not in homework):
+            or 'status' not in homework):
         raise exceptions.ResponseDataError('Отсутствуют ожидаемые ключи.')
     homework_name = homework['homework_name']
     homework_status = homework['status']
