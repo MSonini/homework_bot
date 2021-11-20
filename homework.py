@@ -67,13 +67,13 @@ def get_api_answer(current_timestamp: int) -> dict:
 
 def check_response(response: dict) -> list:
     """Проверка корректности полученных данных."""
-    # Если поставить условие на наличие ключа homeworks, то снова падают тесты.
-    # Разве нельзя оставить без явной проверки, ведь отсутсвие ключа вызовет
-    # стандартный KeyError, который мы обрабоатем в функции main?
-    if isinstance(response['homeworks'], list):
-        if not response['homeworks']:
-            logging.debug('В ответе нет новых статусов.')
-        return response['homeworks']
+    if not isinstance(response, dict):
+        raise TypeError
+    if 'homeworks' in response:
+        if isinstance(response['homeworks'], list):
+            if not response['homeworks']:
+                logging.debug('В ответе нет новых статусов.')
+            return response['homeworks']
     raise exceptions.ResponseDataError(
         'Отсутствуют ожидаемые ключи в ответе API.'
     )
@@ -81,9 +81,6 @@ def check_response(response: dict) -> list:
 
 def parse_status(homework) -> str:
     """Определение статуса домашней работы."""
-    # Аналогичная ситуация функцией check_response - не проходят тесты.
-    # Также оставил без проверки ключей, опираясь на KeyError и его
-    # дальнейшую обработку.
     homework_name = homework['homework_name']
     homework_status = homework['status']
     if homework_status in HOMEWORK_STATUSES:
